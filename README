@@ -1,10 +1,11 @@
 All-in-One Folder File System (AOFS)
 
 To-Do List:
-1) Create a file
-2) Once file is created, work on write
-3) Once work is working, work on read
-4) Use read to see if write worked
+1) getattr = permissions for a file
+2) Create a file
+3) Once file is created, work on write
+4) Once work is working, work on read
+5) Use read to see if write worked
 
 
 Functionality 0: No directories except Root Directory and it only has files. Filesystem (FS_FILE) divided into 4KB blocks. 
