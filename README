@@ -1,0 +1,37 @@
+All-in-One Folder File System (AOFS)
+
+To-Do List:
+1) Create a file
+2) Once file is created, work on write
+3) Once work is working, work on read
+4) Use read to see if write worked
+
+
+Functionality 0: No directories except Root Directory and it only has files. Filesystem (FS_FILE) divided into 4KB blocks. 
+
+FS_FILE:
+	1) Superblock with magic number 0xfa19283e followed by a bitmap of free blocks
+	2) Block with bit 0 = free and 1 = occupied
+
+Functionality 1: Insert files into FS_FILE by finding first free block using the bitmap. After a request to create a new file F1 is received,
+
+FS_ FILE:
+	1) Superblock
+	2) 4KB block for new file F1
+		- Meta-Info about file (time created, file size, *update time stamp for each file when file is created, modified, or accessed*)
+		- Actual contents of file F1
+	3) 4KB block for file F2
+
+Functionality 2: Enable read and writing to files in FS_FILE
+
+Functionality 3: Writing to files beyond 4KB by appending a new block and connecting it to block(s) of the file.
+	1) Superblock
+	2) 4KB block for file F1
+	3) 4KB block for file F2
+	4) 4KB block for file F1 *if we make F1 bigger than 4KB*
+
+Functionality 4: Removing files, if a user removed file F2
+	1) Superblock
+	2) 4KB block for file F1
+	3) Free 4KB block
+	4) 4KB block for file F1
