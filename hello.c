@@ -21,28 +21,52 @@ static const char *hello_path = "/hello";
 
 static int hello_getattr(const char *path, struct stat *stbuf)
 {
+	// struct stat is the file's status
+	// struct stat {
+	// 	dev_t     st_dev;     /* ID of device containing file */
+	// 	ino_t     st_ino;     /* inode number */
+	// 	mode_t    st_mode;    /* protection */
+	// 	nlink_t   st_nlink;   /* number of hard links */
+	// 	uid_t     st_uid;     /* user ID of owner */
+	// 	gid_t     st_gid;     /* group ID of owner */
+	// 	dev_t     st_rdev;    /* device ID (if special file) */
+	// 	off_t     st_size;    /* total size, in bytes */
+	// 	blksize_t st_blksize; /* blocksize for file system I/O */
+	// 	blkcnt_t  st_blocks;  /* number of 512B blocks allocated */
+	// 	time_t    st_atime;   /* time of last access */
+	// 	time_t    st_mtime;   /* time of last modification */
+	// 	time_t    st_ctime;   /* time of last status change */
+	// };
+
 	int res = 0;
 
 	memset(stbuf, 0, sizeof(struct stat));
 	if (strcmp(path, "/") == 0) {
+		// If root directory, return normal file permission 
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
 	} else if (strcmp(path, hello_path) == 0) {
+		// If /hello, return hello's file permission
 		stbuf->st_mode = S_IFREG | 0444;
 		stbuf->st_nlink = 1;
 		stbuf->st_size = strlen(hello_str);
+		printf("Path is /hello\n");
 	} else
+		// -ENOENT Path doesn't exist
 		res = -ENOENT;
 
 	return res;
 }
 
+
+// I don't think this will be needed
 static int hello_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
 	(void) offset;
 	(void) fi;
 
+	// -ENOENT Path doesn't exist
 	if (strcmp(path, "/") != 0)
 		return -ENOENT;
 
@@ -55,9 +79,11 @@ static int hello_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 static int hello_open(const char *path, struct fuse_file_info *fi)
 {
+	// -ENOENT Path doesn't exist
 	if (strcmp(path, hello_path) != 0)
 		return -ENOENT;
 
+	// -EACCESS Requested permission isn't available
 	if ((fi->flags & 3) != O_RDONLY)
 		return -EACCES;
 
@@ -69,6 +95,7 @@ static int hello_read(const char *path, char *buf, size_t size, off_t offset,
 {
 	size_t len;
 	(void) fi;
+	// -ENOENT Path doesn't exist
 	if(strcmp(path, hello_path) != 0)
 		return -ENOENT;
 
