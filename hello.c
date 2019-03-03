@@ -16,6 +16,9 @@
 #include <errno.h>
 #include <fcntl.h>
 
+// 4 KB = 4096 Bytes block size
+#define BLOCK_SIZE 4096
+
 static const char *hello_str = "Hello World!\n";
 static const char *hello_path = "/hello";
 
