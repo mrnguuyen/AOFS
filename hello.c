@@ -74,7 +74,7 @@ static int aofs_getattr(const char *path, struct stat *stbuf)
 	// 	time_t    st_ctime;   /* time of last status change */
 	// };
 	printf("aofs_getattr called\n");
-	printf("aofs_open: path = %s\n", path);
+	printf("aofs_getattr: attributes of %s requested\n", path);
 	stbuf->st_uid = getuid(); // Owner of the file is user who mounted filesystem
 	stbuf->st_gid = getgid(); // Group of file
 	stbuf->st_atime = time(NULL); // Last access of file is right now
@@ -86,19 +86,19 @@ static int aofs_getattr(const char *path, struct stat *stbuf)
 		// If root directory, return normal file permission 
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
-	} else if (strcmp(path, hello_path) == 0) {
-		// If /hello, return hello's file permission
-		stbuf->st_mode = S_IFREG | 0444;
-		stbuf->st_nlink = 1;
-		stbuf->st_size = strlen(hello_str);
-		printf("Path is /hello\n");
-	} else
+	} //else if (strcmp(path, hello_path) == 0) {
+		// // If /hello, return hello's file permission
+		// stbuf->st_mode = S_IFREG | 0444;
+		// stbuf->st_nlink = 1;
+		// stbuf->st_size = strlen(hello_str);
+	//} 
+	else {
 		// -ENOENT Path doesn't exist
 		stbuf->st_mode = S_IFREG | 0644;
 		stbuf->st_nlink = 1;
 		stbuf->st_size = 1024;
 		// res = -ENOENT;
-
+	}
 	return res;
 }
 
@@ -124,6 +124,7 @@ static int aofs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 static int aofs_open(const char *path, struct fuse_file_info *fi)
 {
 	printf("aofs_open: path = %s\n", path);
+	printf("aofs: path = %s\n", path);
 	// -ENOENT Path doesn't exist
 	if (strcmp(path, hello_path) != 0)
 		return -ENOENT;
