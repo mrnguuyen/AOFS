@@ -20,12 +20,12 @@
 #include <fcntl.h>
 #include <time.h>
 
-
 // Superblock struct
 typedef struct {
-    unsigned int magicNumber;   // 0xfa19283e
-    unsigned int totalNumBlocks;   // 256 blocks, 256 * 4KB = 1MB
-    unsigned int blockSize;     // 4096 BYTES or 4KB 
+    unsigned int magicNumber;   	// 0xfa19283e
+    unsigned int totalNumBlocks;  	// 256 blocks, 256 * 4KB = 1MB
+    unsigned int blockSize;     	// 4096 BYTES or 4KB 
+	int bitmap[256];				// Bitmap of 256 bits
 } Superblock;
 
 // FileSystem struct
@@ -40,7 +40,13 @@ static void superblock_init(Superblock *sb, unsigned int totalNumBlocks, unsigne
     sb->magicNumber = 0xfa19283e;
     sb->totalNumBlocks = totalNumBlocks;
     sb->blockSize = blockSize;
-    printf("Initialized superblock with totalNumBlocks = %d and blockSize = %d\n", sb->totalNumBlocks, sb->blockSize);
+	
+	// Initialize all values in bitmap to 0 to set as free bits/blocks
+	for(int i = 0; i < totalNumBlocks; i++) {
+		sb->bitmap[i] = 0;
+	}
+
+    printf("Initialized superblock with totalNumBlocks = %d and blockSize = %d and created bitmap for free blocks\n", sb->totalNumBlocks, sb->blockSize);
 }
 
 // Initialize file system struct at start up
@@ -54,6 +60,7 @@ static void filesys_init(FileSystem *filesystem, FILE *FS_FILE, unsigned int tot
 static FileSystem fs;
 static const char *hello_str = "Hello World!\n";
 static const char *hello_path = "/hello";
+static const char *hi_path = "/hi";
 
 static int aofs_getattr(const char *path, struct stat *stbuf)
 {
@@ -73,50 +80,46 @@ static int aofs_getattr(const char *path, struct stat *stbuf)
 	// 	time_t    st_mtime;   /* time of last modification */
 	// 	time_t    st_ctime;   /* time of last status change */
 	// };
-	printf("aofs_getattr called\n");
 	printf("aofs_getattr: attributes of %s requested\n", path);
-	stbuf->st_uid = getuid(); // Owner of the file is user who mounted filesystem
-	stbuf->st_gid = getgid(); // Group of file
-	stbuf->st_atime = time(NULL); // Last access of file is right now
-	stbuf->st_mtime = time(NULL); // Last modification of file is right now
 	int res = 0;
 
 	memset(stbuf, 0, sizeof(struct stat));
 	if (strcmp(path, "/") == 0) {
-		// If root directory, return normal file permission 
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
-	} //else if (strcmp(path, hello_path) == 0) {
-		// // If /hello, return hello's file permission
-		// stbuf->st_mode = S_IFREG | 0444;
-		// stbuf->st_nlink = 1;
-		// stbuf->st_size = strlen(hello_str);
-	//} 
-	else {
-		// -ENOENT Path doesn't exist
-		stbuf->st_mode = S_IFREG | 0644;
+	} else if (strcmp(path, hello_path) == 0) {
+		stbuf->st_mode = S_IFREG | 0444;
 		stbuf->st_nlink = 1;
-		stbuf->st_size = 1024;
-		// res = -ENOENT;
+		stbuf->st_size = strlen(hello_str);
+	} //else if (strcmp(path, hi_path) == 0) {
+	// 	printf("aofs_getattr: retrieving attributes of hi file\n");
+	// 	stbuf->st_mode = S_IFREG | 0444;
+	// 	stbuf->st_nlink = 1;
+	// } 
+	else {
+		printf("aofs_getattr: Path does not exist\n");
+		res = -ENOENT;
 	}
 	return res;
 }
 
 
-// I don't think this will be needed
 static int aofs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
 	(void) offset;
 	(void) fi;
 
+	printf("aofs_readdir: Grabbing list of files \n");
+
 	// -ENOENT Path doesn't exist
 	if (strcmp(path, "/") != 0)
 		return -ENOENT;
 
-	filler(buf, ".", NULL, 0);
-	filler(buf, "..", NULL, 0);
-	filler(buf, hello_path + 1, NULL, 0);
+	filler(buf, ".", NULL, 0); 		// Current directory
+	filler(buf, "..", NULL, 0); 	// Parent directory
+	filler(buf, hello_path + 1, NULL, 0);	// Filler for hello file
+	// filler(buf, hi_path + 1, NULL, 0);		// This fills inside newHelloFS with filler file with /hi unless we add +1
 
 	return 0;
 }
@@ -124,7 +127,6 @@ static int aofs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 static int aofs_open(const char *path, struct fuse_file_info *fi)
 {
 	printf("aofs_open: path = %s\n", path);
-	printf("aofs: path = %s\n", path);
 	// -ENOENT Path doesn't exist
 	if (strcmp(path, hello_path) != 0)
 		return -ENOENT;
@@ -157,16 +159,37 @@ static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
 	return size;
 }
 
-// NOT WORKING
+// Update the last access time of the given object from ts[0] and the 
+// last modification time from ts[1]. Both time specifications are given 
+// to nanosecond resolution, but your filesystem doesn't have to be that 
+// precise; see utimensat(2) for full details. Note that the time specifications 
+// are allowed to have certain special values; however, I don't know if FUSE functions 
+// have to support them. This function isn't necessary but is nice to have in a fully functional filesystem.
+static int aofs_utimens(const char *path, const struct timespec ts[2], struct fuse_file_info *fi)
+{
+	(void) fi;
+	int res;
+	
+	printf("aofs_utimen: path = %s\n", path);
+	res = utimensat(0, path, ts, AT_SYMLINK_NOFOLLOW);
+	if (res == -1)
+			return -errno;
+	return 0;
+}
+
 static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-	printf("create function has been called\n");
+
+	printf("aofs_create: path = %s\n", path);
+	char *fileName = path + 1;
+	printf("aofs_create: filename = %s\n", fileName);
+	
 	int res;
-	res = open(path, fi->flags, mode);
-	if(res == -1) {
-		return -errno;
-	}
+	res = open(fileName, O_WRONLY|O_CREAT|O_TRUNC, mode);
+	if (res == -1)
+		printf("File: %s was unable to be created\n", fileName);
 	fi->fh = res;
+	printf("aofs_create: %s was created\n", fileName);
 	return 0;
 }
 
@@ -175,24 +198,24 @@ static int aofs_mknod(const char *path, mode_t mode, dev_t rdev)
 {
 	printf("mknod function has been called!\n");
 	printf("path = %s\n", path);
-	int res;
-	if(S_ISREG(mode)) {
-		res = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
-		if(res >= 0) {
-			res = close(res);
-		}
-	}
-	else if(S_ISFIFO(mode)) {
-		res = mkfifo(path, mode);
-	}
-	else {
-		res = mknod(path, mode, rdev);
-	}
+	// int res;
+	// if(S_ISREG(mode)) {
+	// 	res = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
+	// 	if(res >= 0) {
+	// 		res = close(res);
+	// 	}
+	// }
+	// else if(S_ISFIFO(mode)) {
+	// 	res = mkfifo(path, mode);
+	// }
+	// else {
+	// 	res = mknod(path, mode, rdev);
+	// }
 
-	if(res == -1) {
-		perror("mknod error!\n");
-		exit(0);
-	}
+	// if(res == -1) {
+	// 	perror("mknod error!\n");
+	// 	exit(0);
+	// }
 	
 	return 0;
 }
@@ -202,8 +225,9 @@ static struct fuse_operations aofs_oper = {
 	.readdir	= aofs_readdir,
 	.open		= aofs_open,
 	.read		= aofs_read,
-	.create		= aofs_create,
+	.utimens	= aofs_utimens,
 	.mknod		= aofs_mknod,
+	.create		= aofs_create,
 };
 
 int main(int argc, char *argv[])
