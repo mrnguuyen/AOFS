@@ -25,6 +25,7 @@
 typedef struct {
 	char *fileName;
 	unsigned int fileSize;
+	unsigned int fileIndex;
 } Metadata;
 
 // Superblock struct
@@ -92,14 +93,17 @@ static void filesys_bitmap_set(FileSystem *fs, char *fileName, int index, size_t
 	fs->sb.metadata[index].fileSize = size;
 }
 
-static void filesys_find_files_readdir(FileSystem *fs, void *buf, fuse_fill_dir_t filler) {
-	printf("aofs_readdir: filesys_find_files_readdir called\n");
+static int filesys_find_file(FileSystem *fs, char *fileName) {
+	printf("filesys_find_file called\n");
 	for(int i = 0; i < NUM_BLOCKS; i++) {
-		if(strcmp(fs->sb.metadata[i].fileName, "") != 0 && fs->sb.bitmap[i] == 1) {
-			printf("aofs_readdir: File was found with filename = %s\n", fs->sb.metadata[i].fileName);
-			filler(buf, fs->sb.metadata[i].fileName, NULL, 0);
+		char *fileTempName = fs->sb.metadata[i].fileName;
+		int bitValueAtIndex = fs->sb.bitmap[i];
+		if(strcmp(fileTempName, fileName) == 0 && bitValueAtIndex == 1) {
+			printf("filesys_find_file: File was found with filename = %s\n", fs->sb.metadata[i].fileName);
+			return i;
 		}
 	}
+	return -1; // File was not found in file system
 }
 
 
@@ -125,48 +129,33 @@ static int aofs_getattr(const char *path, struct stat *stbuf)
 	// 	time_t    st_mtime;   /* time of last modification */
 	// 	time_t    st_ctime;   /* time of last status change */
 	// };
-	printf("aofs_getattr: attributes of %s requested\n", path);
+	printf("aofs_getattr: attributes of path = %s requested\n", path);
+	memset(stbuf, 0, sizeof(struct stat));
 	int res = 0;
-	char *fileName = path + 1;
 	int foundFlag = 0;
 	size_t fileSize = 0;
+	char *fileName = path + 1;
 
-	memset(stbuf, 0, sizeof(struct stat));
+	// Root directory
 	if (strcmp(path, "/") == 0) {
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
 		return res;
 	} 
-	
-	// TEST
-	for(int i = 0; i < NUM_BLOCKS; i++) {
-		char *fileNameInMeta = fs.sb.metadata[i].fileName;
-		int bitMapAtIndex = fs.sb.bitmap[i];
-		if(strcmp(fileNameInMeta, fileName) == 0 && bitMapAtIndex == 1) {
-			printf("aofs_getattr: file name = %s, index = %d\n", fileNameInMeta, i);
-			printf("aofs_getattr: bitmap value = %d, index = %d\n", bitMapAtIndex, i);
-		}
+	res = filesys_find_file(&fs, fileName);
+	if(res != -1) {
+		foundFlag = 1;
+		fileSize = fs.sb.metadata[res].fileSize;
 	}
-
-	// Check FS_FILE storage to see if file exists
-	// for(int i = 0; i < NUM_BLOCKS; i++) {
-	// 	char *
-	// 	if(strcmp(fileName, fs.sb.metadata[i].fileName) == 0 && fs.sb.bitmap[i] == 1) {
-	// 		printf("aofs_getattr: It's a match at index %d!\n", i);
-	// 		printf("aofs_getattr: File name = %s\n", fs.sb.metadata[i].fileName);
-	// 		fileSize = fs.sb.metadata[i].fileSize;
-	// 		foundFlag = 1;
-	// 		break;
-	// 	}
-	// }
-
+	// hello example path
 	if (strcmp(path, hello_path) == 0) {
 		stbuf->st_mode = S_IFREG | 0444;			// read only
 		stbuf->st_nlink = 1;
 		stbuf->st_size = strlen(hello_str);
+	// File was found in filesystem
 	} else if(foundFlag == 1) {
-		printf("aofs_getattr: %s was found in storage\n", fileName);
-		stbuf->st_mode = S_IFREG | 0644;
+		printf("aofs_getattr: %s: Setting attributes of file!\n", fileName);
+		stbuf->st_mode = S_IFREG | 0644;			// read & write
 		stbuf->st_nlink = 1;
 		stbuf->st_size = fileSize;
 	}
@@ -216,6 +205,10 @@ static int aofs_open(const char *path, struct fuse_file_info *fi)
 
 	// CHECK IF FILE EXISTS
 	// By for looping through the file 
+	res = filesys_find_file(&fs, fileName);
+	if(res != -1) {
+		return 0;
+	}
 
 
 	// -ENOENT Path doesn't exist
@@ -223,10 +216,10 @@ static int aofs_open(const char *path, struct fuse_file_info *fi)
 	// 	return -ENOENT;
 
 	// -EACCESS Requested permission isn't available
-	// if ((fi->flags & 3) != O_RDONLY)
-	// 	return -EACCES;
+	if ((fi->flags & 3) != O_RDONLY)
+		return -EACCES;
 
-	return 0;
+	return -1;
 }
 
 static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
@@ -279,27 +272,43 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 				struct fuse_file_info *fi)
 {
 	printf("aofs_write: path = %s\n", path);
-	// (void) fi;
-	// int fd;
-	// int res;
-	// char *fileName = path + 1;
-	// if(fi == NULL) {
-	// 	fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644); // Open or create the file
-	// }
-	// else {
-	// 	fd = fi->fh;
-	// }
-	// if(fd == -1) {
-	// 	printf("aofs_write: File: %s was unable to be created\n", fileName);
-	// 	exit(1);
-	// }
-	// printf("aofs_write: buf = %s\n", buf);
-	// res = pwrite(fd, buf, size, offset);
-	// if(fi == NULL) {
-	// 	close(fd);
-	// }
+	printf("aofs_write: buf = %s\n", buf);
+	printf("aofs_write: size = %zu\n", size);
+	printf("aofs_write: offset = %ld\n", offset);
+	int fd;
+	int res;
+	int index;
+	int fileOffSet;
+	int position;
+	char *fileName = path + 1;
 
-	// return res;
+	// fd = open("FS_FILE", O_WRONLY | O_TRUNC, 0644); // Open storage file
+	fd = open("FS_FILE", O_WRONLY, 0644); // Open storage file
+	if(fd == -1) {
+		printf("aofs_write: FS_FILE was unable to open\n");
+		exit(1);
+	}
+
+	index = filesys_find_file(&fs, fileName); // Check to make sure file is in FS_FILE
+	if(index == -1) {
+		printf("filesys_find_file returned -1, unable to find file\n");
+		return -1;
+	}
+
+	fileOffSet = index * MAX_BLOCK_SIZE;
+	printf("aofs_write: fileOffSet = %d\n", fileOffSet);
+	position = lseek(fd, fileOffSet, SEEK_SET);
+	printf("aofs_write: lseek returned position = %d\n", position);
+
+	res = write(fd, buf, size);
+	if(res == -1) {
+		printf("aofs_write: File: %s was unable to write to FS_FILE disk\n", fileName);
+		exit(1);
+	}
+	fs.sb.metadata[index].fileSize = size;
+	fs.sb.metadata[index].fileIndex = index;
+	printf("aofs_write: metadata fileSize = %d\n", fs.sb.metadata[index].fileSize);
+	close(fd);
 	return 0;
 }
 
@@ -350,13 +359,13 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	for(int i = 0; i < NUM_BLOCKS; i++) {
 		if(fs.sb.bitmap[i] == 0) {
 			// This is a free block
-			printf("aofs_create: Free index = %d\n", i);
-			fileOffSet = i * MAX_BLOCK_SIZE;
-			printf("aofs_create: File Offset = %d\n", fileOffSet);	
 			index = i;
 			break;
 		}
-	}
+	}	
+	printf("aofs_create: Free index found at index = %d\n", index);
+	fileOffSet = index * MAX_BLOCK_SIZE;
+	printf("aofs_create: File Offset = %d\n", fileOffSet);	
 	int position = lseek(fd, fileOffSet, SEEK_SET);
 	// int position = fseek(fs.FS_FILE, fileOffSet, SEEK_SET);
 	printf("aofs_create: lseek returned position = %d\n", position);
@@ -369,6 +378,7 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	fs.sb.bitmap[index] = 1;
 	fs.sb.metadata[index].fileName = fileName;
 	fs.sb.metadata[index].fileSize = 0;
+	fs.sb.metadata[index].fileIndex = index;
 	// filesys_bitmap_set(&fs, fileName, i, 0);
 	printf("aofs_create: FS_FILE file name at index %d = %s\n", index, fs.sb.metadata[index].fileName);
 	close(fd);
@@ -383,14 +393,22 @@ static int aofs_mknod(const char *path, mode_t mode, dev_t rdev)
 	return 0;
 }
 
+static int aofs_access(const char *path, int i)
+{
+	printf("aofs_access called\n");
+    return 0;
+}
+
 static struct fuse_operations aofs_oper = {
 	.getattr	= aofs_getattr,
 	.readdir	= aofs_readdir,
 	.open		= aofs_open,
 	.read		= aofs_read,
-	// .mknod		= aofs_mknod,
 	.create		= aofs_create,
 	.write		= aofs_write,
+	.mknod		= aofs_mknod,
+	.access		= aofs_access,
+	.utimens	= aofs_utimens,
 };
 
 int main(int argc, char *argv[])
