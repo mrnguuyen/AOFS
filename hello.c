@@ -10,6 +10,7 @@
 
 #define FUSE_USE_VERSION 26
 #define MAX_BLOCK_SIZE 4096		// 4KB block size
+#define NUM_BLOCKS 256
 
 #include <fuse.h>
 #include <stdio.h>
@@ -20,18 +21,27 @@
 #include <fcntl.h>
 #include <time.h>
 
+// Metadata struct
+typedef struct {
+	char *fileName;
+	unsigned int fileSize;
+} Metadata;
+
 // Superblock struct
 typedef struct {
     unsigned int magicNumber;   	// 0xfa19283e
     unsigned int totalNumBlocks;  	// 256 blocks, 256 * 4KB = 1MB
     unsigned int blockSize;     	// 4096 BYTES or 4KB 
-	int bitmap[256];				// Bitmap of 256 bits
+	// Block bitmap[NUM_BLOCKS];
+	char bitmap[NUM_BLOCKS];		// Bitmap of 256 bits to represent blocks of free or occupied
+	Metadata metadata[NUM_BLOCKS];			// Meta data goes here of size 256 as well
 } Superblock;
+
 
 // FileSystem struct
 typedef struct {
-    FILE *FS_FILE;  // Storage
-    Superblock sb;  // Superblock
+    FILE *FS_FILE;  	// Storage
+    Superblock sb;  	// Superblock
 } FileSystem;
 
 
@@ -41,26 +51,61 @@ static void superblock_init(Superblock *sb, unsigned int totalNumBlocks, unsigne
     sb->totalNumBlocks = totalNumBlocks;
     sb->blockSize = blockSize;
 	
-	// Initialize all values in bitmap to 0 to set as free bits/blocks
+	// Initialize all values in bitmap to 0 to set as free blocks
 	for(int i = 0; i < totalNumBlocks; i++) {
 		sb->bitmap[i] = 0;
+		sb->metadata[i].fileName = "";
+		sb->metadata[i].fileSize = 0;
 	}
-
     printf("Initialized superblock with totalNumBlocks = %d and blockSize = %d and created bitmap for free blocks\n", sb->totalNumBlocks, sb->blockSize);
 }
 
 // Initialize file system struct at start up
 static void filesys_init(FileSystem *filesystem, FILE *FS_FILE, unsigned int totalNumBlocks, unsigned int blockSize) {
     printf("Initializing file system struct ... \n");
-    filesystem->FS_FILE = FS_FILE;
-    fseek(FS_FILE, 0, SEEK_SET);
+    filesystem->FS_FILE = FS_FILE;		// Initialize FS_FILE to FileSystem
+    fseek(FS_FILE, 0, SEEK_SET);		// Start iterator at beginning of FS_FILE
     superblock_init(&filesystem->sb, totalNumBlocks, blockSize);
 }
+
+static void filesys_load(FileSystem *fileSystem, FILE *FS_FILE) {
+	// GO THROUGH FS_FILE AND FIND TO SEE IF CONTENT IS THERE. 
+	// IF THERE IS, LOAD IT INTO THE BITMAP WITH OCCUPIED = 1
+	// IF NOT, SET TO 0
+	// FOR EVERY INDEX * 4096 BYTES, CHECK IF CONTENT IS IN THERE
+	printf("Loading file system\n");
+	fileSystem->FS_FILE = FS_FILE;
+	fseek(FS_FILE, 0, SEEK_SET);
+
+	// TEMPORARY HERE FOR TESTING
+	for(int i = 0; i < NUM_BLOCKS; i++) {
+		fileSystem->sb.bitmap[i] = 0;
+		fileSystem->sb.metadata[i].fileName = "";
+		fileSystem->sb.metadata[i].fileSize = 0;
+	}
+}
+
+static void filesys_bitmap_set(FileSystem *fs, char *fileName, int index, size_t size) {
+	printf("filesys_bitmap_set: filename = %s and index = %d\n", fileName, index);
+	fs->sb.bitmap[index] = 1;
+	fs->sb.metadata[index].fileName = fileName;
+	fs->sb.metadata[index].fileSize = size;
+}
+
+static void filesys_find_files_readdir(FileSystem *fs, void *buf, fuse_fill_dir_t filler) {
+	printf("aofs_readdir: filesys_find_files_readdir called\n");
+	for(int i = 0; i < NUM_BLOCKS; i++) {
+		if(strcmp(fs->sb.metadata[i].fileName, "") != 0 && fs->sb.bitmap[i] == 1) {
+			printf("aofs_readdir: File was found with filename = %s\n", fs->sb.metadata[i].fileName);
+			filler(buf, fs->sb.metadata[i].fileName, NULL, 0);
+		}
+	}
+}
+
 
 static FileSystem fs;
 static const char *hello_str = "Hello World!\n";
 static const char *hello_path = "/hello";
-static const char *hi_path = "/hi";
 
 static int aofs_getattr(const char *path, struct stat *stbuf)
 {
@@ -82,27 +127,55 @@ static int aofs_getattr(const char *path, struct stat *stbuf)
 	// };
 	printf("aofs_getattr: attributes of %s requested\n", path);
 	int res = 0;
+	char *fileName = path + 1;
+	int foundFlag = 0;
+	size_t fileSize = 0;
 
 	memset(stbuf, 0, sizeof(struct stat));
 	if (strcmp(path, "/") == 0) {
 		stbuf->st_mode = S_IFDIR | 0755;
 		stbuf->st_nlink = 2;
-	} else if (strcmp(path, hello_path) == 0) {
-		stbuf->st_mode = S_IFREG | 0444;
+		return res;
+	} 
+	
+	// TEST
+	for(int i = 0; i < NUM_BLOCKS; i++) {
+		char *fileNameInMeta = fs.sb.metadata[i].fileName;
+		int bitMapAtIndex = fs.sb.bitmap[i];
+		if(strcmp(fileNameInMeta, fileName) == 0 && bitMapAtIndex == 1) {
+			printf("aofs_getattr: file name = %s, index = %d\n", fileNameInMeta, i);
+			printf("aofs_getattr: bitmap value = %d, index = %d\n", bitMapAtIndex, i);
+		}
+	}
+
+	// Check FS_FILE storage to see if file exists
+	// for(int i = 0; i < NUM_BLOCKS; i++) {
+	// 	char *
+	// 	if(strcmp(fileName, fs.sb.metadata[i].fileName) == 0 && fs.sb.bitmap[i] == 1) {
+	// 		printf("aofs_getattr: It's a match at index %d!\n", i);
+	// 		printf("aofs_getattr: File name = %s\n", fs.sb.metadata[i].fileName);
+	// 		fileSize = fs.sb.metadata[i].fileSize;
+	// 		foundFlag = 1;
+	// 		break;
+	// 	}
+	// }
+
+	if (strcmp(path, hello_path) == 0) {
+		stbuf->st_mode = S_IFREG | 0444;			// read only
 		stbuf->st_nlink = 1;
 		stbuf->st_size = strlen(hello_str);
-	} //else if (strcmp(path, hi_path) == 0) {
-	// 	printf("aofs_getattr: retrieving attributes of hi file\n");
-	// 	stbuf->st_mode = S_IFREG | 0444;
-	// 	stbuf->st_nlink = 1;
-	// } 
+	} else if(foundFlag == 1) {
+		printf("aofs_getattr: %s was found in storage\n", fileName);
+		stbuf->st_mode = S_IFREG | 0644;
+		stbuf->st_nlink = 1;
+		stbuf->st_size = fileSize;
+	}
 	else {
 		printf("aofs_getattr: Path does not exist\n");
 		res = -ENOENT;
 	}
 	return res;
 }
-
 
 static int aofs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
@@ -111,15 +184,25 @@ static int aofs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	(void) fi;
 
 	printf("aofs_readdir: Grabbing list of files \n");
-
 	// -ENOENT Path doesn't exist
 	if (strcmp(path, "/") != 0)
 		return -ENOENT;
 
+
 	filler(buf, ".", NULL, 0); 		// Current directory
 	filler(buf, "..", NULL, 0); 	// Parent directory
 	filler(buf, hello_path + 1, NULL, 0);	// Filler for hello file
-	// filler(buf, hi_path + 1, NULL, 0);		// This fills inside newHelloFS with filler file with /hi unless we add +1
+
+	// printf("aofs_readdir: before filler for fileName\n");
+	// for(int i = 0; i < NUM_BLOCKS; i++) {
+	// 	if(fs.sb.metadata[i].fileName != NULL && fs.sb.bitmap[i] == 1) {
+	// 		printf("aofs_readdir: File was found with filename = %s\n", fs.sb.metadata[i].fileName);
+	// 		filler(buf, fs.sb.metadata[i].fileName, NULL, 0);
+	// 	}
+	// }
+
+
+	// filesys_find_files_readdir(&fs, buf, filler);
 
 	return 0;
 }
@@ -127,13 +210,21 @@ static int aofs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 static int aofs_open(const char *path, struct fuse_file_info *fi)
 {
 	printf("aofs_open: path = %s\n", path);
+	char *fileName = path + 1;
+	int fd;
+	int res;
+
+	// CHECK IF FILE EXISTS
+	// By for looping through the file 
+
+
 	// -ENOENT Path doesn't exist
-	if (strcmp(path, hello_path) != 0)
-		return -ENOENT;
+	// if (strcmp(path, hello_path) != 0)
+	// 	return -ENOENT;
 
 	// -EACCESS Requested permission isn't available
-	if ((fi->flags & 3) != O_RDONLY)
-		return -EACCES;
+	// if ((fi->flags & 3) != O_RDONLY)
+	// 	return -EACCES;
 
 	return 0;
 }
@@ -144,10 +235,35 @@ static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
 	printf("aofs_read: path = %s\n", path);
 	size_t len;
 	(void) fi;
+	char *fileName = path + 1;
+	int fd;
+	int res;
+	// TEST
+	// if(fi == NULL) {
+	// 	fd = open(fileName, O_RDONLY);
+	// }
+	// else {
+	// 	fd = fi->fh;
+	// }
+
+	// if(fd == -1) {
+	// 	printf("aofs_read: File: %s was unable to be opened\n", fileName);
+	// 	exit(1);		
+	// }
+
+	// res = pread(fd, buf, size, offset);
+	// if(res == -1) {
+	// 	printf("aofs_read: File: %s was able to be read\n", fileName);
+	// }
+
+	// if(fi == NULL) {
+	// 	close(fd);
+	// }
+	// return res;
+
 	// -ENOENT Path doesn't exist
 	if(strcmp(path, hello_path) != 0)
 		return -ENOENT;
-
 	len = strlen(hello_str);
 	if (offset < len) {
 		if (offset + size > len)
@@ -157,6 +273,34 @@ static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
 		size = 0;
 
 	return size;
+}
+
+static int aofs_write(const char *path, const char *buf, size_t size, off_t offset, 
+				struct fuse_file_info *fi)
+{
+	printf("aofs_write: path = %s\n", path);
+	// (void) fi;
+	// int fd;
+	// int res;
+	// char *fileName = path + 1;
+	// if(fi == NULL) {
+	// 	fd = open(fileName, O_WRONLY | O_CREAT | O_TRUNC, 0644); // Open or create the file
+	// }
+	// else {
+	// 	fd = fi->fh;
+	// }
+	// if(fd == -1) {
+	// 	printf("aofs_write: File: %s was unable to be created\n", fileName);
+	// 	exit(1);
+	// }
+	// printf("aofs_write: buf = %s\n", buf);
+	// res = pwrite(fd, buf, size, offset);
+	// if(fi == NULL) {
+	// 	close(fd);
+	// }
+
+	// return res;
+	return 0;
 }
 
 // Update the last access time of the given object from ts[0] and the 
@@ -184,12 +328,50 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	char *fileName = path + 1;
 	printf("aofs_create: filename = %s\n", fileName);
 	
+	/*
+		When you create a file, you open FS_FILE and write to FS_FILE of the file content
+		by finding the first free block. In order to find a free block, iterate through the bitmap
+		and once you find a free block, do index of where bitmap was found multiplied by 4096 BYTES
+		which becomes the index byte to write to the FS_FILE. 
+	*/
+
 	int res;
-	res = open(fileName, O_WRONLY|O_CREAT|O_TRUNC, mode);
-	if (res == -1)
-		printf("File: %s was unable to be created\n", fileName);
-	fi->fh = res;
-	printf("aofs_create: %s was created\n", fileName);
+	int fd;
+	int index;
+	int fileOffSet;
+	char *emptyBuf = "";
+	fd = open("FS_FILE", O_WRONLY | O_TRUNC, mode);
+	if(fd == -1) {
+		printf("aofs_create: FS_FILE did not open correctly\n");
+		exit(1);
+	}
+	// Find free block inside of superblock
+	// After writing to FS_FILE, set bitmap[index] = 1 for occupied
+	for(int i = 0; i < NUM_BLOCKS; i++) {
+		if(fs.sb.bitmap[i] == 0) {
+			// This is a free block
+			printf("aofs_create: Free index = %d\n", i);
+			fileOffSet = i * MAX_BLOCK_SIZE;
+			printf("aofs_create: File Offset = %d\n", fileOffSet);	
+			index = i;
+			break;
+		}
+	}
+	int position = lseek(fd, fileOffSet, SEEK_SET);
+	// int position = fseek(fs.FS_FILE, fileOffSet, SEEK_SET);
+	printf("aofs_create: lseek returned position = %d\n", position);
+	res = write(fd, emptyBuf, 0);
+	// res = fwrite(emptyBuf, 0, sizeof(emptyBuf), fs.FS_FILE);
+	if(res == -1) {
+		printf("aofs_create: File: %s was unable to write to FS_FILE disk\n", fileName);
+		exit(1);
+	}
+	fs.sb.bitmap[index] = 1;
+	fs.sb.metadata[index].fileName = fileName;
+	fs.sb.metadata[index].fileSize = 0;
+	// filesys_bitmap_set(&fs, fileName, i, 0);
+	printf("aofs_create: FS_FILE file name at index %d = %s\n", index, fs.sb.metadata[index].fileName);
+	close(fd);
 	return 0;
 }
 
@@ -198,25 +380,6 @@ static int aofs_mknod(const char *path, mode_t mode, dev_t rdev)
 {
 	printf("mknod function has been called!\n");
 	printf("path = %s\n", path);
-	// int res;
-	// if(S_ISREG(mode)) {
-	// 	res = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
-	// 	if(res >= 0) {
-	// 		res = close(res);
-	// 	}
-	// }
-	// else if(S_ISFIFO(mode)) {
-	// 	res = mkfifo(path, mode);
-	// }
-	// else {
-	// 	res = mknod(path, mode, rdev);
-	// }
-
-	// if(res == -1) {
-	// 	perror("mknod error!\n");
-	// 	exit(0);
-	// }
-	
 	return 0;
 }
 
@@ -225,21 +388,22 @@ static struct fuse_operations aofs_oper = {
 	.readdir	= aofs_readdir,
 	.open		= aofs_open,
 	.read		= aofs_read,
-	.utimens	= aofs_utimens,
-	.mknod		= aofs_mknod,
+	// .mknod		= aofs_mknod,
 	.create		= aofs_create,
+	.write		= aofs_write,
 };
 
 int main(int argc, char *argv[])
 {
 	FILE *FS_FILE = fopen("FS_FILE", "r+");
 	if(FS_FILE == NULL) {
-		FS_FILE = fopen("FS_FILE", "wb+");
+		FS_FILE = fopen("FS_FILE", "wb+");		// For write and read
 		printf("FS_FILE has been created\n");
-		filesys_init(&fs, FS_FILE, 256, MAX_BLOCK_SIZE);
+		filesys_init(&fs, FS_FILE, NUM_BLOCKS, MAX_BLOCK_SIZE);
 	}
 	else {
 		printf("FS_FILE is not NULL!\n");
+		filesys_load(&fs, FS_FILE);
 	}
 
 	return fuse_main(argc, argv, &aofs_oper, NULL);
