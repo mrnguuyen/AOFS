@@ -234,19 +234,21 @@ static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
 	int fileOffSet;
 	int position;
 
-	fd = open("FS_FILE", O_RDWR, 0644); // Open storage file
-	if(fd == -1) {
-		printf("aofs_read: FS_FILE was unable to open\n");
-		exit(1);
-	}
+	// fd = open("FS_FILE", O_RDWR, 0644); // Open storage file
+	// if(fd == -1) {
+	// 	printf("aofs_read: FS_FILE was unable to open\n");
+	// 	exit(1);
+	// }
 	index = filesys_find_file(&fs, fileName);
 	if(index == -1) {
 		printf("filesys_find_file returned -1, unable to find file\n");
 		return -1;
 	}
 	fileOffSet = index * MAX_BLOCK_SIZE;
-	position = lseek(fd, fileOffSet, SEEK_SET);
-	res = read(fd, buf, META_RANGE);		// Read first 96 bytes for meta data
+	// position = lseek(fd, fileOffSet, SEEK_SET);
+	position = fseek(fs.FS_FILE, fileOffSet, SEEK_SET);
+	// res = read(fd, &buf, META_RANGE);		// Read first 96 bytes for meta data
+	res = fread(buf, strlen(buf), 1, fs.FS_FILE);
 	printf("aofs_read: after read ... buf = %s\n", buf);
 
 	// ERRORS RETURNED
@@ -284,11 +286,11 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	char metaBuf[96] ="";
 
 	// fd = open("FS_FILE", O_WRONLY | O_TRUNC, 0644); // Open storage file
-	fd = open("FS_FILE", O_RDWR, 0644); // Open storage file
-	if(fd == -1) {
-		printf("aofs_write: FS_FILE was unable to open\n");
-		exit(1);
-	}
+	// fd = open("FS_FILE", O_RDWR, 0644); // Open storage file
+	// if(fd == -1) {
+	// 	printf("aofs_write: FS_FILE was unable to open\n");
+	// 	exit(1);
+	// }
 
 	index = filesys_find_file(&fs, fileName); // Check to make sure file is in FS_FILE
 	if(index == -1) {
@@ -299,11 +301,13 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	// Write to block's metadata
 	fileOffSet = index * MAX_BLOCK_SIZE;
 	printf("aofs_write: metadata fileOffSet = %d\n", fileOffSet);
-	position = lseek(fd, fileOffSet, SEEK_SET);
+	// position = lseek(fd, fileOffSet, SEEK_SET);
+	position = fseek(fs.FS_FILE, fileOffSet, SEEK_SET);
 	printf("aofs_write: lseek metadata position = %d\n", position);
 	sprintf(metaBuf, "fileName = %s, fileSize = %lu, blockIndex = %d", fileName, strlen(buf), index);
 	printf("aofs_write: metaBuf = %s\n", metaBuf);
-	res = write(fd, &metaBuf, strlen(metaBuf));
+	// res = write(fd, &metaBuf, strlen(metaBuf));
+	res = fwrite(&metaBuf, strlen(metaBuf), 1, fs.FS_FILE);
 	if(res == -1) {
 		printf("aofs_write: File: %s was unable to write to FS_FILE disk with meta data\n", fileName);
 		exit(1);
@@ -312,9 +316,11 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	// Write to block's content data
 	fileOffSet = fileOffSet + META_RANGE;
 	printf("aofs_write: File content fileOffSet = %d\n", fileOffSet);
-	position = lseek(fd, fileOffSet, SEEK_SET);
+	// position = lseek(fd, fileOffSet, SEEK_SET);
+	position = fseek(fs.FS_FILE, fileOffSet, SEEK_SET);
 	printf("aofs_write: lseek file content position = %d\n", position);
-	res = write(fd, buf, size);
+	// res = write(fd, buf, size);
+	res = fwrite(buf, size, sizeof(buf), fs.FS_FILE);
 	if(res == -1) {
 		printf("aofs_write: File: %s was unable to write to FS_FILE disk with file content data\n", fileName);
 		exit(1);
@@ -324,7 +330,7 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	fs.sb.metadata[index].fileSize = size;
 	fs.sb.metadata[index].blockIndex = index;
 	printf("aofs_write: metadata fileSize = %d\n", fs.sb.metadata[index].fileSize);
-	close(fd);
+	// close(fd);
 	return 0;
 }
 
@@ -348,11 +354,11 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	int fileOffSet;
 	char buf[95] = "";
 	char *emptyBuf = "";
-	fd = open("FS_FILE", O_RDWR | O_TRUNC, mode);
-	if(fd == -1) {
-		printf("aofs_create: FS_FILE did not open correctly\n");
-		exit(1);
-	}
+	// fd = open("FS_FILE", O_RDWR | O_TRUNC, mode);
+	// if(fd == -1) {
+	// 	printf("aofs_create: FS_FILE did not open correctly\n");
+	// 	exit(1);
+	// }
 	// Find free block inside of superblock
 	// After writing to FS_FILE, set bitmap[index] = 1 for occupied
 	for(int i = 0; i < NUM_BLOCKS; i++) {
@@ -368,10 +374,12 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	fileOffSet = index * MAX_BLOCK_SIZE;
 	printf("aofs_create: File meta data Offset = %d\n", fileOffSet);	
 	int position = lseek(fd, fileOffSet, SEEK_SET);
+	// int position = fseek(fs.FS_FILE, fileOffSet, SEEK_SET);
 	printf("aofs_create: lseek meta data position = %d\n", position);
 	sprintf(buf, "fileName = %s, fileSize = %d, blockIndex = %d", fileName, 0, index);
 	printf("aofs_create: buf = %s\n", buf);
-	res = write(fd, &buf, strlen(buf));
+	// res = write(fd, &buf, strlen(buf));
+	res = fwrite(buf, strlen(buf), 1, fs.FS_FILE);
 	if(res == -1) {
 		printf("aofs_create: File: %s was unable to write to FS_FILE disk Meta Data \n", fileName);
 		exit(1);
@@ -380,9 +388,11 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	// Write to block's content data
 	fileOffSet = fileOffSet + META_RANGE;
 	printf("aofs_create: File content data Offset = %d\n", fileOffSet);
-	position = lseek(fd, fileOffSet, SEEK_SET);
+	// position = lseek(fd, fileOffSet, SEEK_SET);
+	position = fseek(fs.FS_FILE, fileOffSet, SEEK_SET);
 	printf("aofs_create: lseek file content position = %d\n", position);
-	res = write(fd, emptyBuf, 0);
+	// res = write(fd, emptyBuf, 0);
+	res = fwrite(emptyBuf, strlen(emptyBuf), 1, fs.FS_FILE);
 	if(res == -1) {
 		printf("aofs_create: File: %s was unable to write to FS_FILE disk Content Data \n", fileName);
 		exit(1);
@@ -393,7 +403,7 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	fs.sb.metadata[index].blockIndex = index;
 	// filesys_bitmap_set(&fs, fileName, i, 0);
 	printf("aofs_create: FS_FILE file name at index %d = %s\n", index, fs.sb.metadata[index].fileName);
-	close(fd);
+	// close(fd);
 	return 0;
 }
 
