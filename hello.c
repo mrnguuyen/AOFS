@@ -35,9 +35,8 @@ typedef struct {
     unsigned int magicNumber;   	// 0xfa19283e
     unsigned int totalNumBlocks;  	// 256 blocks, 256 * 4KB = 1MB
     unsigned int blockSize;     	// 4096 BYTES or 4KB 
-	// Block bitmap[NUM_BLOCKS];
 	char bitmap[NUM_BLOCKS];		// Bitmap of 256 bits to represent blocks of free or occupied
-	Metadata metadata[NUM_BLOCKS];			// Meta data goes here of size 256 as well
+	Metadata metadata[NUM_BLOCKS];	// Meta data goes here of size 256 as well
 } Superblock;
 
 
@@ -66,6 +65,7 @@ static void superblock_init(Superblock *sb, unsigned int totalNumBlocks, unsigne
 // Initialize file system struct at start up
 static void filesys_init(FileSystem *filesystem, FILE *FS_FILE, unsigned int totalNumBlocks, unsigned int blockSize) {
     printf("Initializing file system struct ... \n");
+	// truncate file to specific size
     filesystem->FS_FILE = FS_FILE;		// Initialize FS_FILE to FileSystem
     fseek(FS_FILE, 0, SEEK_SET);		// Start iterator at beginning of FS_FILE
     superblock_init(&filesystem->sb, totalNumBlocks, blockSize);
@@ -156,7 +156,7 @@ static int aofs_getattr(const char *path, struct stat *stbuf)
 		stbuf->st_size = strlen(hello_str);
 	// File was found in filesystem
 	} else if(foundFlag == 1) {
-		printf("aofs_getattr: %s: Setting attributes of file!\n", fileName);
+		printf("aofs_getattr: %s: foundFlag was set, setting attributes\n", fileName);
 		stbuf->st_mode = S_IFREG | 0644;			// read & write
 		stbuf->st_nlink = 1;
 		stbuf->st_size = fileSize;
@@ -168,6 +168,7 @@ static int aofs_getattr(const char *path, struct stat *stbuf)
 	return res;
 }
 
+// Not needed
 static int aofs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
@@ -211,17 +212,12 @@ static int aofs_open(const char *path, struct fuse_file_info *fi)
 	if(res != -1) {
 		return 0;
 	}
-
-
-	// -ENOENT Path doesn't exist
-	// if (strcmp(path, hello_path) != 0)
-	// 	return -ENOENT;
-
 	// -EACCESS Requested permission isn't available
-	if ((fi->flags & 3) != O_RDONLY)
+	else if ((fi->flags & 3) != O_RDONLY)
 		return -EACCES;
-
-	return -1;
+	else {
+		return -ENOENT;
+	}
 }
 
 static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
@@ -307,7 +303,7 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	printf("aofs_write: lseek metadata position = %d\n", position);
 	sprintf(metaBuf, "fileName = %s, fileSize = %lu, blockIndex = %d", fileName, strlen(buf), index);
 	printf("aofs_write: metaBuf = %s\n", metaBuf);
-	res = write(fd, metaBuf, strlen(metaBuf));
+	res = write(fd, &metaBuf, strlen(metaBuf));
 	if(res == -1) {
 		printf("aofs_write: File: %s was unable to write to FS_FILE disk with meta data\n", fileName);
 		exit(1);
@@ -375,7 +371,7 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	printf("aofs_create: lseek meta data position = %d\n", position);
 	sprintf(buf, "fileName = %s, fileSize = %d, blockIndex = %d", fileName, 0, index);
 	printf("aofs_create: buf = %s\n", buf);
-	res = write(fd, buf, strlen(buf));
+	res = write(fd, &buf, strlen(buf));
 	if(res == -1) {
 		printf("aofs_create: File: %s was unable to write to FS_FILE disk Meta Data \n", fileName);
 		exit(1);
