@@ -233,6 +233,7 @@ static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
 	int index;
 	int fileOffSet;
 	int position;
+	int fileSize;
 
 	fd = open("FS_FILE", O_RDWR, 0644); // Open storage file
 	if(fd == -1) {
@@ -244,9 +245,11 @@ static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
 		printf("filesys_find_file returned -1, unable to find file\n");
 		return -1;
 	}
+	fileSize = fs.sb.metadata[index].fileSize;
 	fileOffSet = index * MAX_BLOCK_SIZE;
+	fileOffSet = fileOffSet + META_RANGE;
 	position = lseek(fd, fileOffSet, SEEK_SET);
-	res = read(fd, buf, META_RANGE);		// Read first 96 bytes for meta data
+	res = read(fd, buf, fileSize);		// Read first fileSize bytes for content data
 	printf("aofs_read: after read ... buf = %s\n", buf);
 
 	// ERRORS RETURNED
