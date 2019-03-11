@@ -24,7 +24,6 @@
 
 // Metadata struct
 typedef struct {
-	// char *fileName;
 	char fileName[24];
 	unsigned int fileSize;
 	unsigned int blockIndex;
@@ -486,7 +485,83 @@ static int aofs_access(const char *path, int i)
 
 static int aofs_unlink(const char *path) {
 	printf("aofs_unlink function called\n");
+	char *name = malloc(strlen(path) + 1);
+	strcpy(name, path + 1);
+	printf("aofs_unlink: filename = %s\n", name);
+
+	int fileSize;
+
+	// find the file name in the file system
+	int index = filesys_find_file(&fs, name);
+	if(index == -1) {
+		printf("filesys_find_file returned -1, unable to find file\n");
+		free(name);
+		return -1;
+	}
+
+	fileSize = fs.sb.metadata[index].fileSize;
+	char emptyBuf[fileSize];
+	for(int i = 0; i < fileSize; i++) {
+		emptyBuf[i] = 0;
+	}
 	
+	char metaBuf[META_RANGE];
+	for(int i = 0; i < META_RANGE; i++) {
+		metaBuf[i] = 0;
+	}
+	
+	// index has file we want to delete from file system
+	// open up FS_FILE
+	int fd = open("FS_FILE", O_WRONLY); // Open storage file
+	if(fd == -1) {
+		printf("aofs_write: FS_FILE was unable to open\n");
+		free(name);
+		exit(1);
+	}
+
+	// Write to meta data
+	int fileOffSet = index * MAX_BLOCK_SIZE;		// Meta data offset
+	printf("aofs_unlink: File meta data Offset = %d\n", fileOffSet);	
+	int position = lseek(fd, fileOffSet, SEEK_SET);
+	printf("aofs_unlink: lseek meta data position = %d\n", position);
+	int res = write(fd, &metaBuf, META_RANGE);
+	if(res == -1) {
+		printf("aofs_unlink: File: %s was unable to write to FS_FILE disk Meta Data \n", name);
+		free(name);
+		exit(1);
+	}
+
+	// Write to block's content data
+	fileOffSet = fileOffSet + META_RANGE;
+	printf("aofs_unlink: File content data Offset = %d\n", fileOffSet);
+	position = lseek(fd, fileOffSet, SEEK_SET);
+	printf("aofs_unlink: lseek file content position = %d\n", position);
+	res = write(fd, &emptyBuf, fileSize);
+	if(res == -1) {
+		printf("aofs_unlink: File: %s was unable to write to FS_FILE disk Content Data \n", name);
+		free(name);
+		exit(1);
+	}
+
+	// Upon successful deletion of the file
+	fs.sb.bitmap[index] = 0;
+	// fs.sb.metadata[index].fileName = "";
+	for(int i = 0; i < 24; i++) {
+		fs.sb.metadata[index].fileName[i] = 0;
+	}
+	fs.sb.metadata[index].fileSize = 0;
+	fs.sb.metadata[index].blockIndex = 0;
+	fs.sb.metadata[index].mode = 0;
+	fs.sb.metadata[index].timeCreated = 0;
+	fs.sb.metadata[index].timeUpdated = 0;
+
+	int totalBytes = NUM_BLOCKS * MAX_BLOCK_SIZE;
+	int trunc = ftruncate(fd, totalBytes);
+	if(trunc == -1) {
+		printf("aofs_write: unable to truncate file\n");
+	}
+
+	close(fd);
 	return 0;
 }
 
