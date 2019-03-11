@@ -24,12 +24,13 @@
 
 // Metadata struct
 typedef struct {
-	char fileName[24];
-	unsigned int fileSize;
-	unsigned int blockIndex;
-	mode_t mode;
-	time_t timeCreated;
-	time_t timeUpdated;
+	char fileName[24];			// File name
+	unsigned int fileSize;		// File size
+	unsigned int blockIndex;	// File index
+	unsigned int nextBlock;		// Index of new block for file if fileSize > 4KB
+	mode_t mode;				// File mode
+	time_t timeCreated;			// File creation time
+	time_t timeUpdated;			// File updated time
 } Metadata;
 
 // Superblock struct
