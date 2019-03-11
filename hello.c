@@ -10,8 +10,8 @@
 
 #define FUSE_USE_VERSION 26
 #define MAX_BLOCK_SIZE 4096		// 4KB block size
-#define NUM_BLOCKS 256
-#define META_RANGE 96
+#define NUM_BLOCKS 256			// 256 blocks
+#define META_RANGE 1096			// 1096 BYTES used for meta data
 
 #include <fuse.h>
 #include <stdio.h>
@@ -270,16 +270,6 @@ static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
 	printf("aofs_read: after read ... buf = %s\n", buf);
 	close(fd);
 
-	// -ENOENT Path doesn't exist
-	// if(strcmp(path, hello_path) != 0)
-	// 	return -ENOENT;
-	// len = strlen(hello_str);
-	// if (offset < len) {
-	// 	if (offset + size > len)
-	// 		size = len - offset;
-	// 	memcpy(buf, hello_str + offset, size);
-	// } else
-	// 	size = 0;
 	return res;
 }
 
@@ -299,7 +289,7 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	int position;
 	char *name = malloc(strlen(path) + 1);
 	strcpy(name, path + 1);
-	char metaBuf[96] ="";
+	char metaBuf[META_RANGE] ="";
 
 	// O_TRUNC OVERWRITES EXISTING DATA
 	// O_APPEND APPENDS AFTER EXISTING DATA
@@ -318,13 +308,14 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 		return -1;
 	}
 	printf("aofs_write: found file: %s at index = %d\n", fs.sb.metadata[index].fileName, index);
+	time_t timeUpdated = time(NULL);
 
 	// Write to block's metadata
 	fileOffSet = index * MAX_BLOCK_SIZE;
 	printf("aofs_write: metadata fileOffSet = %d\n", fileOffSet);
 	position = lseek(fd, fileOffSet, SEEK_SET);
 	printf("aofs_write: lseek metadata position = %d\n", position);
-	sprintf(metaBuf, "fileName = %s, fileSize = %lu, blockIndex = %d", name, strlen(buf), index);
+	sprintf(metaBuf, "fileName = %s, fileSize = %lu, blockIndex = %d, mode = %d, timeCreated = %ld, timeUpdated = %ld", name, strlen(buf), index, fs.sb.metadata[index].mode, fs.sb.metadata[index].timeCreated, timeUpdated);
 	printf("aofs_write: metaBuf = %s\n", metaBuf);
 	res = write(fd, metaBuf, strlen(metaBuf));
 	if(res == -1) {
@@ -349,7 +340,7 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	fs.sb.metadata[index].fileName[sizeof(fs.sb.metadata[index].fileName)-1] = '\0';
 	fs.sb.metadata[index].fileSize = size;
 	fs.sb.metadata[index].blockIndex = index;
-	fs.sb.metadata[index].mode = S_IFREG | 0644;
+	// fs.sb.metadata[index].mode = S_IFREG | 0644;
 	fs.sb.metadata[index].timeUpdated = time(NULL);
 	printf("aofs_write: time updated = %ld\n", fs.sb.metadata[index].timeUpdated);
 	printf("aofs_write: metadata fileSize = %d\n", fs.sb.metadata[index].fileSize);
@@ -384,7 +375,7 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	int fd;
 	int index;
 	int fileOffSet;
-	char buf[95] = "";
+	char buf[META_RANGE] = "";
 	char *emptyBuf = "";
 	fd = open("FS_FILE", O_WRONLY);
 	if(fd == -1) {
@@ -402,13 +393,15 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 		}
 	}	
 
+	time_t timeCreated = time(NULL);
+
 	// Write to block's metadata
 	printf("aofs_create: Free index found at index = %d\n", index);
 	fileOffSet = index * MAX_BLOCK_SIZE;
 	printf("aofs_create: File meta data Offset = %d\n", fileOffSet);	
 	int position = lseek(fd, fileOffSet, SEEK_SET);
 	printf("aofs_create: lseek meta data position = %d\n", position);
-	sprintf(buf, "fileName = %s, fileSize = %d, blockIndex = %d", name, 0, index);
+	sprintf(buf, "fileName = %s, fileSize = %d, blockIndex = %d, mode = %d, timeCreated = %ld, timeUpdated = 0", name, 0, index, mode, timeCreated);
 	printf("aofs_create: buf = %s\n", buf);
 	res = write(fd, &buf, strlen(buf));
 	if(res == -1) {
@@ -433,8 +426,8 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	fs.sb.metadata[index].fileName[sizeof(fs.sb.metadata[index].fileName)-1] = '\0';
 	fs.sb.metadata[index].fileSize = 0;
 	fs.sb.metadata[index].blockIndex = index;
-	fs.sb.metadata[index].mode = S_IFREG | 0644;
-	fs.sb.metadata[index].timeCreated = time(NULL);
+	fs.sb.metadata[index].mode = mode;
+	fs.sb.metadata[index].timeCreated = timeCreated;
 	printf("aofs_create: FS_FILE time created = %ld\n", fs.sb.metadata[index].timeCreated);
 	printf("aofs_create: FS_FILE file name at index %d = %s\n", index, fs.sb.metadata[index].fileName);
 	
@@ -468,7 +461,6 @@ static int aofs_utimens(const char *path, const struct timespec ts[2], struct fu
 }
 
 
-// NOT WORKING
 static int aofs_mknod(const char *path, mode_t mode, dev_t rdev)
 {
 	printf("mknod function has been called!\n");
