@@ -9,9 +9,9 @@
 */
 
 #define FUSE_USE_VERSION 26
-#define MAX_BLOCK_SIZE 4096		// 4KB block size
-#define NUM_BLOCKS 256			// 256 blocks
-#define META_RANGE 1096			// 1096 BYTES used for meta data
+#define MAX_BLOCK_SIZE 4096			// 4KB block size
+#define NUM_BLOCKS 256				// 256 blocks
+#define META_RANGE 1096				// 1096 BYTES used for meta data
 
 #include <fuse.h>
 #include <stdio.h>
@@ -24,12 +24,13 @@
 
 // Metadata struct
 typedef struct {
-	char fileName[24];
-	unsigned int fileSize;
-	unsigned int blockIndex;
-	mode_t mode;
-	time_t timeCreated;
-	time_t timeUpdated;
+	char fileName[24];				// File Name
+	unsigned int fileSize;			// File Size
+	unsigned int blockIndex;		// File Block Index
+	unsigned int nextBlock;			// File Next Block Index if fileSize > 4KB
+	mode_t mode;					// File Mode
+	time_t timeCreated;				// File Creation Time
+	time_t timeUpdated;				// File Updated/Modified Time
 } Metadata;
 
 // Superblock struct
