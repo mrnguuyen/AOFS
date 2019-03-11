@@ -67,12 +67,15 @@ static void superblock_init(Superblock *sb, unsigned int totalNumBlocks, unsigne
 // Initialize file system struct at start up
 static void filesys_init(FileSystem *filesystem, unsigned int totalNumBlocks, unsigned int blockSize) {
     printf("Initializing file system struct ... \n");
-	int fd = open("FS_FILE", O_RDWR, 0644); // Open storage file
+	int fd = open("FS_FILE", O_RDWR | O_TRUNC, 0644); // Open storage file
 	if(fd == -1) {
 		printf("filesys_init: unable to open FS_FILE\n");
 		exit(1);
 	}
-	int res = ftruncate(fd, totalNumBlocks * blockSize);
+	printf("filesys_init: totalNumBlocks = %d and blockSize = %d\n", totalNumBlocks, blockSize);
+	unsigned int totalBytes = totalNumBlocks * blockSize;
+	printf("filesys_init: totalBytes = %d\n", totalBytes);
+	int res = ftruncate(fd, totalBytes);
 	if(res == -1) {
 		printf("filesys_init: unable to truncate file\n");
 	}
@@ -148,6 +151,11 @@ static int aofs_getattr(const char *path, struct stat *stbuf)
 	mode_t mode;
 	int index;
 
+	for(int i = 0; i < 3; i++) {
+		// TEST print first 3 fileNames in meta data bit map
+		printf("aofs_getattr: Index = %d, fileName = %s, bitmap =%d\n", i, fs.sb.metadata[i].fileName, fs.sb.bitmap[i]);
+	}
+
 	// Root directory
 	if (strcmp(path, "/") == 0) {
 		stbuf->st_mode = S_IFDIR | 0755;
@@ -156,24 +164,14 @@ static int aofs_getattr(const char *path, struct stat *stbuf)
 		return res;
 	} 
 
-	for(int i = 0; i < 3; i++) {
-		// TEST print first 5 fileNames in meta data bit map
-		printf("aofs_getattr: Index = %d, fileName = %s, bitmap =%d\n", i, fs.sb.metadata[i].fileName, fs.sb.bitmap[i]);
-	}
-
 	index = filesys_find_file(&fs, name);
 	if(index != -1) {
 		foundFlag = 1;
 		fileSize = fs.sb.metadata[index].fileSize;
 		mode = fs.sb.metadata[index].mode;
 	}
-	// hello example path
-	if (strcmp(path, hello_path) == 0) {
-		stbuf->st_mode = S_IFREG | 0444;			// read only
-		stbuf->st_nlink = 1;
-		stbuf->st_size = strlen(hello_str);
 	// File was found in filesystem
-	} else if(foundFlag == 1) {
+	if(foundFlag == 1) {
 		printf("aofs_getattr: %s: foundFlag was set, setting attributes\n", name);
 		stbuf->st_mode = mode;
 		stbuf->st_nlink = 1;
@@ -202,7 +200,7 @@ static int aofs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 	filler(buf, ".", NULL, 0); 		// Current directory
 	filler(buf, "..", NULL, 0); 	// Parent directory
-	filler(buf, hello_path + 1, NULL, 0);	// Filler for hello file
+	// filler(buf, hello_path + 1, NULL, 0);	// Filler for hello file
 
 	for(int i = 0; i < NUM_BLOCKS; i++) {
 		if(strlen(fs.sb.metadata[i].fileName) != 0) {
@@ -264,6 +262,7 @@ static int aofs_read(const char *path, char *buf, size_t size, off_t offset,
 		printf("filesys_find_file returned -1, unable to find file\n");
 		return -1;
 	}
+	printf("aofs_read: found file: %s at index = %d\n", fs.sb.metadata[index].fileName, index);
 	fileSize = fs.sb.metadata[index].fileSize;
 	fileOffSet = index * MAX_BLOCK_SIZE;
 	fileOffSet = fileOffSet + META_RANGE;
@@ -294,6 +293,8 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	printf("aofs_write: offset = %ld\n", offset);
 	int fd;
 	int res;
+	int res1;
+	// int totalSize;
 	int index;
 	int fileOffSet;
 	int position;
@@ -301,8 +302,10 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	strcpy(name, path + 1);
 	char metaBuf[96] ="";
 
-	// fd = open("FS_FILE", O_WRONLY | O_TRUNC, 0644); // Open storage file
-	fd = open("FS_FILE", O_RDWR, 0644); // Open storage file
+	// O_TRUNC OVERWRITES EXISTING DATA
+	// O_APPEND APPENDS AFTER EXISTING DATA
+	// fd = open("FS_FILE", O_RDWR | O_TRUNC, 0644); // Open storage file
+	fd = open("FS_FILE", O_RDWR , 0644); // Open storage file
 	if(fd == -1) {
 		printf("aofs_write: FS_FILE was unable to open\n");
 		free(name);
@@ -315,6 +318,7 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 		free(name);
 		return -1;
 	}
+	printf("aofs_write: found file: %s at index = %d\n", fs.sb.metadata[index].fileName, index);
 
 	// Write to block's metadata
 	fileOffSet = index * MAX_BLOCK_SIZE;
@@ -323,7 +327,7 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	printf("aofs_write: lseek metadata position = %d\n", position);
 	sprintf(metaBuf, "fileName = %s, fileSize = %lu, blockIndex = %d", name, strlen(buf), index);
 	printf("aofs_write: metaBuf = %s\n", metaBuf);
-	res = write(fd, &metaBuf, strlen(metaBuf));
+	res = write(fd, metaBuf, strlen(metaBuf));
 	if(res == -1) {
 		printf("aofs_write: File: %s was unable to write to FS_FILE disk with meta data\n", name);
 		free(name);
@@ -335,8 +339,8 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	printf("aofs_write: File content fileOffSet = %d\n", fileOffSet);
 	position = lseek(fd, fileOffSet, SEEK_SET);
 	printf("aofs_write: lseek file content position = %d\n", position);
-	res = write(fd, buf, size);
-	if(res == -1) {
+	res1 = write(fd, buf, size);
+	if(res1 == -1) {
 		printf("aofs_write: File: %s was unable to write to FS_FILE disk with file content data\n", name);
 		free(name);
 		exit(1);
@@ -350,9 +354,16 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	fs.sb.metadata[index].timeUpdated = time(NULL);
 	printf("aofs_write: time updated = %ld\n", fs.sb.metadata[index].timeUpdated);
 	printf("aofs_write: metadata fileSize = %d\n", fs.sb.metadata[index].fileSize);
+
+	int totalBytes = NUM_BLOCKS * MAX_BLOCK_SIZE;
+	int trunc = ftruncate(fd, totalBytes);
+	if(trunc == -1) {
+		printf("aofs_write: unable to truncate file\n");
+	}
+
 	close(fd);
 	free(name);
-	return 0;
+	return size;
 }
 
 static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
@@ -376,7 +387,7 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	int fileOffSet;
 	char buf[95] = "";
 	char *emptyBuf = "";
-	fd = open("FS_FILE", O_RDWR | O_TRUNC, mode);
+	fd = open("FS_FILE", O_WRONLY);
 	if(fd == -1) {
 		printf("aofs_create: FS_FILE did not open correctly\n");
 		free(name);
@@ -427,6 +438,13 @@ static int aofs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	fs.sb.metadata[index].timeCreated = time(NULL);
 	printf("aofs_create: FS_FILE time created = %ld\n", fs.sb.metadata[index].timeCreated);
 	printf("aofs_create: FS_FILE file name at index %d = %s\n", index, fs.sb.metadata[index].fileName);
+	
+	int totalBytes = NUM_BLOCKS * MAX_BLOCK_SIZE;
+	int trunc = ftruncate(fd, totalBytes);
+	if(trunc == -1) {
+		printf("aofs_write: unable to truncate file\n");
+	}
+
 	close(fd);
 	free(name);
 	return 0;
@@ -468,6 +486,7 @@ static int aofs_access(const char *path, int i)
 
 static int aofs_unlink(const char *path) {
 	printf("aofs_unlink function called\n");
+	
 	return 0;
 }
 
