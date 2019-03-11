@@ -304,7 +304,7 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 
 	// O_TRUNC OVERWRITES EXISTING DATA
 	// O_APPEND APPENDS AFTER EXISTING DATA
-	// fd = open("FS_FILE", O_RDWR | O_TRUNC, 0644); // Open storage file
+	// fd = open("FS_FILE", O_RDWR | O_TRUNC, 0644); // Open storage file // O_TRUNC literally overwrites everything
 	fd = open("FS_FILE", O_RDWR , 0644); // Open storage file
 	if(fd == -1) {
 		printf("aofs_write: FS_FILE was unable to open\n");
