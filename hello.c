@@ -532,6 +532,7 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 		if(trunc == -1) {
 			printf("aofs_write: unable to truncate file\n");
 		}
+		filesys_write_bitmap(&fs);
 
 		close(fd);
 		free(name);
@@ -586,6 +587,7 @@ static int aofs_write(const char *path, const char *buf, size_t size, off_t offs
 	}
 
 	close(fd);
+	filesys_write_bitmap(&fs);
 	free(name);
 	return size;
 }
