@@ -36,3 +36,23 @@ Functionality 4: Removing files, if a user removed file F2
 	2) 4KB block for file F1
 	3) Free 4KB block
 	4) 4KB block for file F1
+
+To use the file system:
+cd ~
+sudo kldload fuse
+cc hello.c -o hello `pkgconf fuse --cflags --libs`
+
+Open one terminal
+sudo
+then kldload fuse
+then ./hello newHelloFS -f
+
+Open other terminal
+sudo
+cd newHelloFS
+then do the 4 types of operations above(create, write, read, and remove files)
+
+To use the Benchmark:
+sudo
+use mv to move the Benchmark into the newHelloFS
+then do sh Benchmark.sh
