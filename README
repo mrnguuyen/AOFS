@@ -1,41 +1,8 @@
+Brandon Nguyen (brngnguy)
+Curtis Lee (cualee)
+Thomas Zhen (tizhen)
+
 All-in-One Folder File System (AOFS)
-
-To-Do List:
-1) getattr = permissions for a file
-2) Create a file
-3) Once file is created, work on write
-4) Once work is working, work on read
-5) Use read to see if write worked
-
-
-Functionality 0: No directories except Root Directory and it only has files. Filesystem (FS_FILE) divided into 4KB blocks. 
-
-FS_FILE:
-	1) Superblock with magic number 0xfa19283e followed by a bitmap of free blocks
-	2) Block with bit 0 = free and 1 = occupied
-
-Functionality 1: Insert files into FS_FILE by finding first free block using the bitmap. After a request to create a new file F1 is received,
-
-FS_ FILE:
-	1) Superblock
-	2) 4KB block for new file F1
-		- Meta-Info about file (time created, file size, *update time stamp for each file when file is created, modified, or accessed*)
-		- Actual contents of file F1
-	3) 4KB block for file F2
-
-Functionality 2: Enable read and writing to files in FS_FILE
-
-Functionality 3: Writing to files beyond 4KB by appending a new block and connecting it to block(s) of the file.
-	1) Superblock
-	2) 4KB block for file F1
-	3) 4KB block for file F2
-	4) 4KB block for file F1 *if we make F1 bigger than 4KB*
-
-Functionality 4: Removing files, if a user removed file F2
-	1) Superblock
-	2) 4KB block for file F1
-	3) Free 4KB block
-	4) 4KB block for file F1
 
 To use the file system:
 cd ~
@@ -46,8 +13,10 @@ Open one terminal
 sudo
 then kldload fuse
 then ./hello newHelloFS -f
+(May need to run this twice if the first attempt doesn't go into foreground mode)
+(Second attempt always works)
 
-Open other terminal
+Open another new terminal
 sudo
 cd newHelloFS
 then do the 4 types of operations above(create, write, read, and remove files)
